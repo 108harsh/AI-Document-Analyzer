@@ -26,8 +26,6 @@ AI Document Analyzer System is a powerful web application leveraging advanced La
 ### Query & Result Card Example
 ![Result Screenshot](result.png)
 
-### Dependency Graph
-![Dependency Graph](screenshots/dependency-graph.png)
 
 ---
 
@@ -74,7 +72,7 @@ text
 ## 🚀 Quick Start
 
 1. **Clone the repository**
-git clone https://github.com/username/ai-document-decision-system.git
+git clone https://github.com/gupta_harsh_108/ai-analyzer.git
 cd ai-document-decision-system
 
 text
@@ -136,12 +134,6 @@ text
 
 ---
 
-## 📜 License
-
-Specify your license here (e.g., MIT, Apache 2.0, etc.)
-
----
-
 ## 🙏 Acknowledgements
 
 - [FastAPI](https://fastapi.tiangolo.com/)
@@ -157,5 +149,10 @@ Specify your license here (e.g., MIT, Apache 2.0, etc.)
 ## 📞 Support
 
 For issues, open a GitHub issue or contact the maintainer.
+
+---
+## Contact
+
+email-guptaharsh1969@gmail.com
 
 ---
