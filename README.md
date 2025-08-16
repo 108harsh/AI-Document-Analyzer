@@ -72,7 +72,7 @@ text
 ## 🚀 Quick Start
 
 1. **Clone the repository**
-git clone https://github.com/gupta_harsh_108/ai-analyzer.git
+git clone https://github.com/108harsh/ai-document-analyzer.git
 cd ai-document-decision-system
 
 text
