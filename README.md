@@ -21,10 +21,10 @@ AI Document Analyzer System is a powerful web application leveraging advanced La
 ## 🖥️ Visual Demonstrations
 
 ### Document Upload Flow
-![Document Upload Screenshot](screenshots/upload.png)
+![Document Upload Screenshot](upload.png)
 
 ### Query & Result Card Example
-![Result Screenshot](screenshots/result.png)
+![Result Screenshot](result.png)
 
 ### Dependency Graph
 ![Dependency Graph](screenshots/dependency-graph.png)
