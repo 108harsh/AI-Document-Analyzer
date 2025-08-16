@@ -129,8 +129,7 @@ text
 ## 👥 Collaboration
 
 - Public repo for open sharing; private repo for team confidentiality.
-- Add teammates as collaborators via GitHub Settings.
-- Share the repo link for easy access and setup.
+
 
 ---
 
