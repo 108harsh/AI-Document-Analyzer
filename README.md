@@ -24,7 +24,7 @@ AI Document Analyzer System is a powerful web application leveraging advanced La
 ![Document Upload Screenshot](screenshots/upload.png)
 
 ### Query & Result Card Example
-![Result Screenshot](screenshots/result.png)
+![Result Screenshot](screenshots/.png)
 
 
 ---
