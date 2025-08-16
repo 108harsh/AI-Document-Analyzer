@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Document Processing System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%); color: #ffffff; min-height: 100vh; overflow-x: hidden; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 40px; }
+        .ux-brand { font-size: 4rem; font-weight: bold; background: linear-gradient(45deg, #00d4ff, #00ff88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .subtitle { font-size: 1.2rem; color: #a0a0a0; }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px; }
+        .card { background: rgba(255, 255, 255, 0.05); border-radius: 20px; padding: 30px; border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+        .section-title { font-size: 1.5rem; margin-bottom: 20px; color: #00d4ff; display: flex; align-items: center; gap: 10px; }
+        .upload-area { border: 2px dashed rgba(0, 212, 255, 0.3); border-radius: 15px; padding: 40px; text-align: center; cursor: pointer; }
+        .upload-area:hover { border-color: #00d4ff; }
+        .upload-icon { font-size: 3rem; color: #00d4ff; margin-bottom: 15px; }
+        .file-input { display: none; }
+        .query-input { width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 15px; padding: 15px; color: #ffffff; font-size: 1rem; margin-bottom: 20px; min-height: 100px; }
+        .query-btn { background: linear-gradient(45deg, #00ff88, #00d4ff); color: #000; border: none; padding: 15px 40px; border-radius: 25px; font-weight: bold; cursor: pointer; width: 100%; }
+        .results-section { display: none; }
+        .result-card { background: rgba(255, 255, 255, 0.08); border-radius: 15px; padding: 25px; margin-bottom: 20px; }
+        .decision-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+        .decision-approved { border-left: 4px solid #00ff88; }
+        .decision-rejected { border-left: 4px solid #ff4757; }
+        .decision-icon { font-size: 2rem; }
+        .decision-approved .decision-icon { color: #00ff88; }
+        .decision-rejected .decision-icon { color: #ff4757; }
+        .decision-text { font-size: 1.5rem; font-weight: bold; }
+        .justification { color: #a0a0a0; line-height: 1.6; margin-bottom: 20px; }
+        .clauses-list { background: rgba(0, 0, 0, 0.3); border-radius: 10px; padding: 20px; }
+        .clause-item { background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 15px; margin-bottom: 10px; border-left: 3px solid #00d4ff; }
+        .loading { display: none; text-align: center; padding: 40px; }
+        .spinner { border: 3px solid rgba(255, 255, 255, 0.1); border-top: 3px solid #00d4ff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="ux-brand">AI Document Analyzer</div>
+            <div class="subtitle">Powered by Google Gemini</div>
+        </div>
+        <form id="queryForm">
+            <div class="main-grid">
+                <div class="card">
+                    <div class="section-title"><i class="fas fa-cloud-upload-alt"></i> Document Upload</div>
+                    <label for="fileInput" class="upload-area">
+                        <div class="upload-icon"><i class="fas fa-file-upload"></i></div>
+                        <div id="upload-text">Click to browse or drag & drop PDF</div>
+                        <input type="file" id="fileInput" class="file-input" accept=".pdf" required>
+                    </label>
+                </div>
+                <div class="card">
+                    <div class="section-title"><i class="fas fa-search"></i> Query Processing</div>
+                    <textarea id="queryInput" class="query-input" placeholder="Enter your query here..." required></textarea>
+                    <button type="submit" class="query-btn"><i class="fas fa-play"></i> Process Query</button>
+                </div>
+            </div>
+        </form>
+        <div class="loading" id="loading"><div class="spinner"></div><div>Processing your request...</div></div>
+        <div class="card results-section" id="resultsSection">
+            <div class="section-title"><i class="fas fa-chart-line"></i> Processing Results</div>
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+    <script>
+        const queryForm = document.getElementById('queryForm');
+        const fileInput = document.getElementById('fileInput');
+        const queryInput = document.getElementById('queryInput');
+        const uploadText = document.getElementById('upload-text');
+        const loadingDiv = document.getElementById('loading');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsContent = document.getElementById('resultsContent');
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                uploadText.textContent = `Selected: ${fileInput.files[0].name}`;
+            }
+        });
+
+        let lastUploadedFileName = null;
+        queryForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            resultsSection.style.display = 'none';
+            resultsContent.innerHTML = '';
+            if (!fileInput.files[0]) {
+                alert('Please upload a PDF file.');
+                return;
+            }
+            loadingDiv.style.display = 'block';
+
+            // Only upload if file is new or changed
+            let uploadNeeded = lastUploadedFileName !== fileInput.files[0].name;
+            if (uploadNeeded) {
+                const uploadFormData = new FormData();
+                uploadFormData.append('file', fileInput.files[0]);
+                try {
+                    const uploadResponse = await fetch('/upload-document/', {
+                        method: 'POST',
+                        body: uploadFormData,
+                    });
+                    const uploadResult = await uploadResponse.json();
+                    if (!uploadResponse.ok) {
+                        throw new Error(uploadResult.detail || 'File upload failed');
+                    }
+                    lastUploadedFileName = fileInput.files[0].name;
+                } catch (error) {
+                    displayError('File upload failed: ' + error.message);
+                    loadingDiv.style.display = 'none';
+                    return;
+                }
+            }
+
+            // Step 2: Send the query
+            const queryFormData = new FormData();
+            queryFormData.append('query', queryInput.value);
+
+            try {
+                const response = await fetch('/query-document/', {
+                    method: 'POST',
+                    body: queryFormData,
+                });
+                const responseText = await response.text();
+                if (!response.ok) {
+                    let errorMessage = 'An unknown error occurred.';
+                    try {
+                        const errorDetail = JSON.parse(responseText);
+                        errorMessage = errorDetail.detail || errorMessage;
+                    } catch (jsonError) {
+                        errorMessage = responseText || errorMessage;
+                    }
+                    throw new Error(errorMessage);
+                }
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (jsonError) {
+                    throw new Error(`Invalid JSON response from server: ${responseText.substring(0, 200)}...`);
+                }
+                displayResults(result);
+            } catch (error) {
+                displayError(error.message);
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        });
+
+        function displayResults(result) {
+            resultsSection.style.display = 'block';
+            
+            // Safely access result properties with fallbacks
+            const decision = result.decision || 'Unknown';
+            const justification = result.justification || 'No justification provided';
+            const sourceContent = result.source_content || [];
+            
+            const decisionClass = `decision-${decision.toLowerCase()}`;
+            const decisionIcon = decision.toLowerCase() === 'approved' ? 'fas fa-check-circle' : 'fas fa-times-circle';
+
+            resultsContent.innerHTML = `
+                <div class="result-card ${decisionClass}">
+                    <div class="decision-header">
+                        <div class="decision-icon"><i class="${decisionIcon}"></i></div>
+                        <div class="decision-text">${decision.toUpperCase()}</div>
+                    </div>
+                    <h4>Justification:</h4>
+                    <p class="justification">${justification}</p>
+                    <div class="clauses-list">
+                        <h4>Source Text Used by AI:</h4>
+                        ${sourceContent.length > 0 ? 
+                            sourceContent.map(clause => `<div class="clause-item">${clause}</div>`).join('') :
+                            '<div class="clause-item">No source content available</div>'
+                        }
+                    </div>
+                </div>`;
+            resultsSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function displayError(errorMessage) {
+            resultsSection.style.display = 'block';
+            resultsContent.innerHTML = `<div class="result-card decision-rejected"><h4>Error</h4><p>${errorMessage}</p></div>`;
+        }
+    </script>
+</body>
+</html>
