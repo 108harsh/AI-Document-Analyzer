@@ -3,10 +3,10 @@ import io
 import json
 import logging
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, Request
+from fastapi import FastAPI, HTTPException, UploadFile, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
 import google.generativeai as genai
 from PyPDF2 import PdfReader
@@ -46,9 +46,9 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
     logger.warning(f"Static folder created at {STATIC_DIR}. Place your app.html here.")
-# Commented out to avoid decode errors from StaticFiles
-# app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# ✅ Serve static files
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # ----------------------------------------------------
 # Database Setup (SQLite with SQLAlchemy)
@@ -110,41 +110,31 @@ def get_rag_response(query: str) -> dict:
         raise HTTPException(status_code=400, detail="No documents uploaded yet.")
 
     # --- Keyword-based chunk selection ---
-    # Split documents into paragraphs (chunks)
     all_paragraphs = []
     for doc in DOCUMENTS:
-        # Split on double newlines or single newlines for paragraphs
         paragraphs = [p.strip() for p in doc.split('\n\n') if p.strip()]
         if len(paragraphs) < 5:
-            # If not enough, split on single newlines
             paragraphs = [p.strip() for p in doc.split('\n') if p.strip()]
         all_paragraphs.extend(paragraphs)
 
-    # Extract keywords from query (simple split, lowercase, remove stopwords)
     import re
     stopwords = set(["the", "is", "at", "which", "on", "and", "a", "an", "of", "to", "in", "for", "by", "with", "as", "that", "this", "it", "from", "or", "be", "are", "was", "were", "has", "have", "had", "but", "not", "no", "do", "does", "did"])
     query_words = set(re.findall(r"\w+", query.lower())) - stopwords
     if not query_words:
         query_words = set(re.findall(r"\w+", query.lower()))
 
-
-    # Filter out address-like and very short paragraphs
     def is_content_paragraph(para):
-        # Must be at least 100 chars and contain a period (full sentence)
         if len(para) < 100:
             return False
         if '.' not in para:
             return False
-        # Exclude paragraphs with mostly address-like keywords
         address_keywords = ["floor", "road", "palace", "block", "main road", "street", "avenue", "sector", "building", "pincode", "pin code", "no.", "plot", "lane", "village", "district", "taluk", "ward", "post", "city", "state", "zip", "address"]
         para_lower = para.lower()
         address_count = sum(1 for k in address_keywords if k in para_lower)
-        # If more than 2 address keywords, likely an address
         if address_count > 2:
             return False
         return True
 
-    # Score paragraphs by keyword overlap, but only if content-rich
     scored_paragraphs = []
     for para in all_paragraphs:
         if not is_content_paragraph(para):
@@ -154,10 +144,8 @@ def get_rag_response(query: str) -> dict:
         if overlap > 0:
             scored_paragraphs.append((overlap, para))
 
-    # Sort by overlap, then by length (descending)
     scored_paragraphs.sort(key=lambda x: (-x[0], -len(x[1])))
 
-    # Select top N relevant paragraphs, up to ~4000 chars
     selected = []
     total_chars = 0
     max_chars = 4000
@@ -166,11 +154,9 @@ def get_rag_response(query: str) -> dict:
             break
         selected.append(para)
         total_chars += len(para)
-    # Fallback: if nothing matched, use the top 3 longest content-rich paragraphs
+
     if not selected:
-        # Find all content-rich paragraphs
         content_paragraphs = [p for p in all_paragraphs if is_content_paragraph(p)]
-        # Sort by length descending
         content_paragraphs.sort(key=lambda p: -len(p))
         selected = content_paragraphs[:3] if content_paragraphs else ["\n\n".join(DOCUMENTS)[:2000]]
 
@@ -193,13 +179,11 @@ def get_rag_response(query: str) -> dict:
     raw_text = response.text
     logger.info(f"Raw Gemini response: {raw_text}")
 
-    # Remove code block wrappers (e.g., ```json ... ```)
     cleaned = raw_text.strip()
     if cleaned.startswith('```'):
         cleaned = re.sub(r'^```[a-zA-Z]*', '', cleaned)
         cleaned = cleaned.strip('`\n')
 
-    # Try to extract the first valid JSON object from the response
     match = re.search(r'\{.*\}', cleaned, re.DOTALL)
     if match:
         json_str = match.group(0)
@@ -220,7 +204,6 @@ def get_rag_response(query: str) -> dict:
         except Exception as e:
             logger.warning(f"Failed to parse JSON from Gemini response: {e}")
 
-    # Fallback: if no JSON found or parse failed
     return {
         "decision": "UNKNOWN",
         "justification": "No justification provided",
@@ -233,15 +216,13 @@ def get_rag_response(query: str) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    """Serve the main frontend HTML page."""
+    """Serve the main frontend HTML page at root URL."""
     index_file = os.path.join(STATIC_DIR, "app.html")
     if not os.path.exists(index_file):
         return HTMLResponse("<h2>No app.html found in static/ folder.</h2>", status_code=200)
-    # Read file as bytes, detect encoding, and fallback if needed
     try:
         with open(index_file, "rb") as f:
             content_bytes = f.read()
-        import chardet
         detected = chardet.detect(content_bytes)
         encoding = detected.get("encoding")
         logger.info(f"Detected encoding for app.html: {encoding}")
@@ -256,13 +237,13 @@ async def serve_frontend():
         if text is None:
             try:
                 text = content_bytes.decode("utf-8", errors="replace")
-                logger.info(f"Decoded app.html with utf-8 (replace)")
+                logger.info("Decoded app.html with utf-8 (replace)")
             except Exception as utf8_err:
                 decode_errors.append(f"utf-8: {utf8_err}")
         if text is None:
             try:
                 text = content_bytes.decode("latin-1", errors="replace")
-                logger.info(f"Decoded app.html with latin-1 (replace)")
+                logger.info("Decoded app.html with latin-1 (replace)")
             except Exception as latin1_err:
                 decode_errors.append(f"latin-1: {latin1_err}")
         if text is None:
@@ -289,7 +270,6 @@ async def upload_document(file: UploadFile):
                 extracted_text = page.extract_text()
                 if extracted_text:
                     text += extracted_text
-            # OCR fallback if no text extracted
             if not text.strip():
                 logger.info(f"No text extracted with PyPDF2, trying OCR fallback for {file.filename}")
                 try:
@@ -303,12 +283,9 @@ async def upload_document(file: UploadFile):
                 except Exception as ocr_err:
                     logger.error(f"OCR extraction failed for {file.filename}: {ocr_err}")
                     text = ""
-
-            # Table extraction using camelot
             try:
                 import tempfile
                 import camelot
-                import os
                 tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
                 try:
                     tmp_pdf.write(content)
@@ -330,26 +307,22 @@ async def upload_document(file: UploadFile):
             except Exception as table_err:
                 logger.warning(f"Table extraction failed for {file.filename}: {table_err}")
         else:
-            # Detect encoding for non-PDF files
             detected = chardet.detect(content)
             encoding = detected.get("encoding")
             logger.info(f"Detected encoding for {file.filename}: {encoding}")
             decode_errors = []
-            # Try detected encoding first
             if encoding:
                 try:
                     text = content.decode(encoding, errors="strict")
                     logger.info(f"Decoded {file.filename} with detected encoding: {encoding}")
                 except Exception as decode_err:
                     decode_errors.append(f"Detected encoding '{encoding}': {decode_err}")
-            # Try utf-8 with replace
             if not text:
                 try:
                     text = content.decode("utf-8", errors="replace")
                     logger.info(f"Decoded {file.filename} with utf-8 (replace)")
                 except Exception as utf8_err:
                     decode_errors.append(f"utf-8: {utf8_err}")
-            # Try latin-1 with replace
             if not text:
                 try:
                     text = content.decode("latin-1", errors="replace")
@@ -365,7 +338,6 @@ async def upload_document(file: UploadFile):
 
         logger.info(f"Extracted text (first 500 chars): {text[:500]}")
         DOCUMENTS.append(text)
-        # Store in DB
         pdf_doc = PDFDocument(filename=file.filename, content=content, extracted_text=text)
         db.add(pdf_doc)
         db.commit()
@@ -377,16 +349,12 @@ async def upload_document(file: UploadFile):
     finally:
         db.close()
 
-from fastapi import Form
-
 
 @app.post("/query-document/")
 async def query_document(query: str = Form(...)):
-    """Query the uploaded documents, store query and response in DB, and return JSON answer."""
     db = SessionLocal()
     try:
         response = get_rag_response(query)
-        # Store query and response in DB
         record = QueryRecord(query=query, response_json=json.dumps(response))
         db.add(record)
         db.commit()
@@ -394,14 +362,8 @@ async def query_document(query: str = Form(...)):
     finally:
         db.close()
 
-# ----------------------------------------------------
-# Data Viewing Endpoints
-# ----------------------------------------------------
-from fastapi.responses import StreamingResponse
-
 @app.get("/list-documents/")
 def list_documents():
-    """List all uploaded documents (metadata only)."""
     db = SessionLocal()
     try:
         docs = db.query(PDFDocument).all()
@@ -414,7 +376,6 @@ def list_documents():
 
 @app.get("/download-document/{doc_id}")
 def download_document(doc_id: int):
-    """Download a PDF document by ID."""
     db = SessionLocal()
     try:
         doc = db.query(PDFDocument).filter(PDFDocument.id == doc_id).first()
@@ -426,7 +387,6 @@ def download_document(doc_id: int):
 
 @app.get("/list-queries/")
 def list_queries():
-    """List all queries and their responses."""
     db = SessionLocal()
     try:
         queries = db.query(QueryRecord).order_by(QueryRecord.created_at.desc()).all()
@@ -441,6 +401,5 @@ def list_queries():
 # Local Run
 # ----------------------------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))   # Railway gives PORT, fallback=8000
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run("backend:app", host="0.0.0.0", port=port, reload=True)
-
